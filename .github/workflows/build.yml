@@ -329,6 +329,13 @@ jobs:
           cd "postgresql-${PG_VERSION}"
 
           export PATH="${PREFIX_DIR}/bin:${PATH}"
+          if [ "${{ matrix.target_arch }}" = "arm64" ]; then
+            export CC="${PREFIX_DIR}/bin/clang"
+            export CXX="${PREFIX_DIR}/bin/clang++"
+            export AR="${PREFIX_DIR}/bin/llvm-ar"
+            export NM="${PREFIX_DIR}/bin/llvm-nm"
+            export RANLIB="${PREFIX_DIR}/bin/llvm-ranlib"
+          fi
           export CPPFLAGS="-I${PREFIX_DIR}/include"
           export LDFLAGS="-L${PREFIX_DIR}/lib"
 
