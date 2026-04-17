@@ -324,6 +324,12 @@ jobs:
             "https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
           tar xzf "postgresql-${PG_VERSION}.tar.gz"
 
+      - name: Patch PostgreSQL for Windows arm64
+        if: matrix.target_arch == 'arm64'
+        run: |
+          perl -0pi -e 's/#ifdef __MINGW64__/#if defined(__MINGW64__) \&\& !defined(__aarch64__)/' \
+            "postgresql-${PG_VERSION}/src/include/c.h"
+
       - name: Configure
         run: |
           cd "postgresql-${PG_VERSION}"
