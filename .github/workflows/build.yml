@@ -1,0 +1,344 @@
+name: Build PostgreSQL
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  MACOS_DEPLOYMENT_TARGET: "12.0"
+
+jobs:
+  build-macos:
+    name: PostgreSQL ${{ matrix.pg_version }} (${{ matrix.target_arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        pg_version:
+          - "15.12"
+          - "16.8"
+          - "17.4"
+        target_arch:
+          - arm64
+          - x86_64
+        include:
+          - target_arch: arm64
+            runner: macos-14
+            brew_prefix: /opt/homebrew
+            brew_bin: /opt/homebrew/bin/brew
+          - target_arch: x86_64
+            runner: macos-14
+            brew_prefix: /usr/local
+            brew_bin: /usr/local/bin/brew
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 15.4
+        run: |
+          XCODE_APP="/Applications/Xcode_15.4.app"
+          if [ ! -d "${XCODE_APP}" ]; then
+            echo "Expected Xcode not found: ${XCODE_APP}"
+            exit 1
+          fi
+          echo "Selected Xcode: ${XCODE_APP}"
+          sudo xcode-select -s "${XCODE_APP}/Contents/Developer"
+          xcodebuild -version
+          xcrun clang --version
+          xcrun clang++ --version
+          echo "DEVELOPER_DIR=${XCODE_APP}/Contents/Developer" >> "${GITHUB_ENV}"
+
+      - name: Prepare Rosetta and x86_64 Homebrew
+        if: matrix.target_arch == 'x86_64'
+        run: |
+          softwareupdate --install-rosetta --agree-to-license || true
+
+          if [ ! -x "/usr/local/bin/brew" ]; then
+            NONINTERACTIVE=1 arch -x86_64 /bin/bash -c \
+              "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          fi
+
+          arch -x86_64 /usr/local/bin/brew --version
+
+      - name: Install dependencies
+        run: |
+          BREW_BIN="${{ matrix.brew_bin }}"
+
+          if [ ! -x "${BREW_BIN}" ]; then
+            echo "Expected Homebrew not found: ${BREW_BIN}"
+            exit 1
+          fi
+
+          brew_cmd() {
+            if [ "${{ matrix.target_arch }}" = "x86_64" ]; then
+              arch -x86_64 "${BREW_BIN}" "$@"
+            else
+              "${BREW_BIN}" "$@"
+            fi
+          }
+
+          brew_cmd update
+          brew_cmd install openssl@3 readline zlib flex bison pkg-config
+
+          PG_VERSION="${{ matrix.pg_version }}"
+
+          {
+            echo "PG_VERSION=${PG_VERSION}"
+            echo "INSTALL_DIR=postgresql-${PG_VERSION}-macos-${{ matrix.target_arch }}"
+            echo "BREW_PREFIX=${{ matrix.brew_prefix }}"
+            echo "BREW_BIN=${BREW_BIN}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Download PostgreSQL source
+        run: |
+          curl -fSL -o "postgresql-${PG_VERSION}.tar.gz" \
+            "https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
+          tar xzf "postgresql-${PG_VERSION}.tar.gz"
+
+      - name: Configure
+        run: |
+          brew_cmd() {
+            if [ "${{ matrix.target_arch }}" = "x86_64" ]; then
+              arch -x86_64 "${BREW_BIN}" "$@"
+            else
+              "${BREW_BIN}" "$@"
+            fi
+          }
+
+          OPENSSL_ROOT="$(brew_cmd --prefix openssl@3)"
+          READLINE_ROOT="$(brew_cmd --prefix readline)"
+          ZLIB_ROOT="$(brew_cmd --prefix zlib)"
+          FLEX_ROOT="$(brew_cmd --prefix flex)"
+          BISON_ROOT="$(brew_cmd --prefix bison)"
+
+          SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+          CC="$(xcrun --find clang)"
+          CXX="$(xcrun --find clang++)"
+
+          cd "postgresql-${PG_VERSION}"
+
+          export SDKROOT="${SDK_PATH}"
+          export CC
+          export CXX
+          export PATH="${FLEX_ROOT}/bin:${BISON_ROOT}/bin:${BREW_PREFIX}/bin:${PATH}"
+          export CPPFLAGS="-I${OPENSSL_ROOT}/include -I${READLINE_ROOT}/include -I${ZLIB_ROOT}/include -arch ${{ matrix.target_arch }}"
+          export LDFLAGS="-L${OPENSSL_ROOT}/lib -L${READLINE_ROOT}/lib -L${ZLIB_ROOT}/lib -arch ${{ matrix.target_arch }}"
+          export CFLAGS="-arch ${{ matrix.target_arch }}"
+          export CXXFLAGS="-arch ${{ matrix.target_arch }} -stdlib=libc++"
+
+          ./configure \
+            --prefix="/${INSTALL_DIR}" \
+            --with-openssl \
+            --with-readline \
+            --without-icu
+
+      - name: Build
+        run: |
+          cd "postgresql-${PG_VERSION}"
+          make -j$(sysctl -n hw.logicalcpu)
+
+      - name: Package
+        run: |
+          cd "postgresql-${PG_VERSION}"
+          rm -rf "${GITHUB_WORKSPACE}/stage"
+          make install DESTDIR="${GITHUB_WORKSPACE}/stage"
+
+          cd "${GITHUB_WORKSPACE}/stage"
+          tar czf "${GITHUB_WORKSPACE}/${INSTALL_DIR}.tar.gz" "${INSTALL_DIR}"
+
+          cd "${GITHUB_WORKSPACE}"
+          shasum -a 256 "${INSTALL_DIR}.tar.gz" > "${INSTALL_DIR}.tar.gz.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-${{ matrix.pg_version }}-macos-${{ matrix.target_arch }}
+          path: |
+            postgresql-${{ matrix.pg_version }}-macos-${{ matrix.target_arch }}.tar.gz
+            postgresql-${{ matrix.pg_version }}-macos-${{ matrix.target_arch }}.tar.gz.sha256
+
+  build-linux:
+    name: PostgreSQL ${{ matrix.pg_version }} (linux-x86_64)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        pg_version:
+          - "15.12"
+          - "16.8"
+          - "17.4"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            flex \
+            bison \
+            libreadline-dev \
+            zlib1g-dev \
+            libssl-dev
+
+          {
+            echo "PG_VERSION=${{ matrix.pg_version }}"
+            echo "INSTALL_DIR=postgresql-${{ matrix.pg_version }}-linux-x86_64"
+          } >> "${GITHUB_ENV}"
+
+      - name: Download PostgreSQL source
+        run: |
+          curl -fSL -o "postgresql-${PG_VERSION}.tar.gz" \
+            "https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
+          tar xzf "postgresql-${PG_VERSION}.tar.gz"
+
+      - name: Configure
+        run: |
+          cd "postgresql-${PG_VERSION}"
+
+          ./configure \
+            --prefix="/${INSTALL_DIR}" \
+            --with-openssl \
+            --with-readline \
+            --without-icu
+
+      - name: Build
+        run: |
+          cd "postgresql-${PG_VERSION}"
+          make -j"$(nproc)"
+
+      - name: Package
+        run: |
+          cd "postgresql-${PG_VERSION}"
+          rm -rf "${GITHUB_WORKSPACE}/stage"
+          make install DESTDIR="${GITHUB_WORKSPACE}/stage"
+
+          cd "${GITHUB_WORKSPACE}/stage"
+          tar czf "${GITHUB_WORKSPACE}/${INSTALL_DIR}.tar.gz" "${INSTALL_DIR}"
+
+          cd "${GITHUB_WORKSPACE}"
+          sha256sum "${INSTALL_DIR}.tar.gz" > "${INSTALL_DIR}.tar.gz.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-${{ matrix.pg_version }}-linux-x86_64
+          path: |
+            postgresql-${{ matrix.pg_version }}-linux-x86_64.tar.gz
+            postgresql-${{ matrix.pg_version }}-linux-x86_64.tar.gz.sha256
+
+  build-windows:
+    name: PostgreSQL ${{ matrix.pg_version }} (windows-x86_64)
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        pg_version:
+          - "15.12"
+          - "16.8"
+          - "17.4"
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            zip
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-readline
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-flex
+            mingw-w64-ucrt-x86_64-bison
+
+      - name: Set environment
+        run: |
+          {
+            echo "PG_VERSION=${{ matrix.pg_version }}"
+            echo "INSTALL_DIR=postgresql-${{ matrix.pg_version }}-windows-x86_64"
+            echo "MSYSTEM=UCRT64"
+            echo "CHERE_INVOKING=1"
+          } >> "${GITHUB_ENV}"
+
+      - name: Download PostgreSQL source
+        run: |
+          curl -fSL -o "postgresql-${PG_VERSION}.tar.gz" \
+            "https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz"
+          tar xzf "postgresql-${PG_VERSION}.tar.gz"
+
+      - name: Configure
+        run: |
+          cd "postgresql-${PG_VERSION}"
+
+          export PATH="/ucrt64/bin:${PATH}"
+          export CPPFLAGS="-I/ucrt64/include"
+          export LDFLAGS="-L/ucrt64/lib"
+
+          ./configure \
+            --prefix="/${INSTALL_DIR}" \
+            --with-openssl \
+            --with-readline \
+            --without-icu
+
+      - name: Build
+        run: |
+          cd "postgresql-${PG_VERSION}"
+          make -j"$(nproc)"
+
+      - name: Package
+        run: |
+          cd "postgresql-${PG_VERSION}"
+          rm -rf "${GITHUB_WORKSPACE}/stage"
+          make install DESTDIR="${GITHUB_WORKSPACE}/stage"
+
+          cd "${GITHUB_WORKSPACE}/stage"
+          zip -r "${GITHUB_WORKSPACE}/${INSTALL_DIR}.zip" "${INSTALL_DIR}"
+
+          cd "${GITHUB_WORKSPACE}"
+          sha256sum "${INSTALL_DIR}.zip" > "${INSTALL_DIR}.zip.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-${{ matrix.pg_version }}-windows-x86_64
+          path: |
+            postgresql-${{ matrix.pg_version }}-windows-x86_64.zip
+            postgresql-${{ matrix.pg_version }}-windows-x86_64.zip.sha256
+
+  release:
+    needs:
+      - build-macos
+      - build-linux
+      - build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            postgresql-*/postgresql-*.tar.gz
+            postgresql-*/postgresql-*.tar.gz.sha256
+            postgresql-*/postgresql-*.zip
+            postgresql-*/postgresql-*.zip.sha256
+          generate_release_notes: true
