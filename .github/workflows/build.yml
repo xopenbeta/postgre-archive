@@ -329,6 +329,8 @@ jobs:
         run: |
           perl -0pi -e 's/#ifdef __MINGW64__/#if defined(__MINGW64__) \&\& !defined(__aarch64__)/' \
             "postgresql-${PG_VERSION}/src/include/c.h"
+          perl -0pi -e 's/DllUnregisterServer\@0/DllUnregisterServer/g; s/DllRegisterServer\@0/DllRegisterServer/g' \
+            "postgresql-${PG_VERSION}/src/bin/pgevent/exports.txt"
 
       - name: Configure
         run: |
