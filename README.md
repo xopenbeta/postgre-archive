@@ -1,16 +1,16 @@
 # postgre-archive
 
-为 macOS 预编译的 PostgreSQL 二进制包，支持 Intel (x86_64) 和 Apple Silicon (arm64)。
+为 macOS / Linux / Windows 预编译的 PostgreSQL 二进制包，支持 x86_64 和 arm64。
 
 ## 触发构建
 
 ```bash
-git tag v202604171100
+git tag v202604171130
 git push
-git push origin v202604171100
+git push origin v202604171130
 ```
 
-构建完成后，GitHub Release 页面会自动发布全部支持版本在 arm64 与 x86_64 两个目标架构上的二进制包。
+构建完成后，GitHub Release 页面会自动发布全部支持版本在各平台（macOS/Linux/Windows）与两种目标架构（x86_64/arm64）上的二进制包。
 
 ## 支持版本
 
@@ -22,12 +22,16 @@ git push origin v202604171100
 
 ## 构建环境
 
-| 架构 | Runner | 最低 macOS |
-|------|--------|-----------|
-| x86_64 (Intel) | `macos-14` | 12.0 Monterey |
-| arm64 (Apple Silicon) | `macos-14` | 12.0 Monterey |
+| 平台 | 架构 | Runner |
+|------|------|--------|
+| macOS | x86_64 | `macos-14` (Rosetta + x86_64 Homebrew) |
+| macOS | arm64 | `macos-14` |
+| Linux | x86_64 | `ubuntu-24.04` |
+| Linux | arm64 | `ubuntu-22.04-arm` |
+| Windows | x86_64 | `windows-2022` + MSYS2 `UCRT64` |
+| Windows | arm64 | `windows-11-arm` + MSYS2 `CLANGARM64` |
 
-说明：由于 GitHub Actions 已不再稳定提供 `macos-13`，x86_64 产物改为在 `macos-14` Apple Silicon runner 上通过 Rosetta 与 x86_64 Homebrew 依赖链进行交叉编译。
+说明：macOS x86_64 产物在 Apple Silicon runner 上通过 Rosetta 与 x86_64 Homebrew 依赖链构建。
 
 ## 构建配置
 
@@ -35,16 +39,18 @@ git push origin v202604171100
 - **Readline**: 启用
 - **ICU**: 禁用（`--without-icu`）
 - **依赖**: `openssl@3`、`readline`、`zlib`、`flex`、`bison`、`pkg-config`
+- **Linux 打包**: `.tar.gz`
+- **Windows 打包**: `.zip`
 - **源码**: 从 [ftp.postgresql.org](https://ftp.postgresql.org/pub/source/) 下载
 
 ## 使用方法
 
-从 [Releases](../../releases) 页面下载对应架构的压缩包：
+从 [Releases](../../releases) 页面下载对应平台和架构的压缩包：
 
 ```bash
-# 解压
-tar xzf postgresql-VERSION-macos-ARCH.tar.gz
-cd postgresql-VERSION-macos-ARCH
+# macOS / Linux 解压
+tar xzf postgresql-VERSION-PLATFORM-ARCH.tar.gz
+cd postgresql-VERSION-PLATFORM-ARCH
 
 # 初始化数据目录（首次使用）
 mkdir data
@@ -53,7 +59,7 @@ mkdir data
 # 启动服务
 ./bin/pg_ctl -D "$(pwd)/data" -l "$(pwd)/postgresql.log" start
 
-# 连接
+# 连接（默认监听 5432）
 ./bin/psql -h 127.0.0.1 -p 5432 -U "$USER" postgres
 
 # 关闭服务
@@ -65,5 +71,9 @@ mkdir data
 每个压缩包附带 SHA256 校验文件：
 
 ```bash
-shasum -a 256 -c postgresql-VERSION-macos-ARCH.tar.gz.sha256
+# macOS / Linux
+shasum -a 256 -c postgresql-VERSION-PLATFORM-ARCH.tar.gz.sha256
+
+# Windows (Git Bash / MSYS2)
+sha256sum -c postgresql-VERSION-windows-ARCH.zip.sha256
 ```

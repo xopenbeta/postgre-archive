@@ -161,8 +161,8 @@ jobs:
             postgresql-${{ matrix.pg_version }}-macos-${{ matrix.target_arch }}.tar.gz.sha256
 
   build-linux:
-    name: PostgreSQL ${{ matrix.pg_version }} Linux x86_64
-    runs-on: ubuntu-24.04
+    name: PostgreSQL ${{ matrix.pg_version }} Linux ${{ matrix.target_arch }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -170,6 +170,14 @@ jobs:
           - "15.12"
           - "16.8"
           - "17.4"
+        target_arch:
+          - x86_64
+          - arm64
+        include:
+          - target_arch: x86_64
+            runner: ubuntu-24.04
+          - target_arch: arm64
+            runner: ubuntu-22.04-arm
 
     steps:
       - name: Checkout
@@ -188,7 +196,7 @@ jobs:
 
           {
             echo "PG_VERSION=${{ matrix.pg_version }}"
-            echo "INSTALL_DIR=postgresql-${{ matrix.pg_version }}-linux-x86_64"
+            echo "INSTALL_DIR=postgresql-${{ matrix.pg_version }}-linux-${{ matrix.target_arch }}"
           } >> "${GITHUB_ENV}"
 
       - name: Download PostgreSQL source
@@ -227,14 +235,14 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: postgresql-${{ matrix.pg_version }}-linux-x86_64
+          name: postgresql-${{ matrix.pg_version }}-linux-${{ matrix.target_arch }}
           path: |
-            postgresql-${{ matrix.pg_version }}-linux-x86_64.tar.gz
-            postgresql-${{ matrix.pg_version }}-linux-x86_64.tar.gz.sha256
+            postgresql-${{ matrix.pg_version }}-linux-${{ matrix.target_arch }}.tar.gz
+            postgresql-${{ matrix.pg_version }}-linux-${{ matrix.target_arch }}.tar.gz.sha256
 
   build-windows:
-    name: PostgreSQL ${{ matrix.pg_version }} Windows x86_64
-    runs-on: windows-2022
+    name: PostgreSQL ${{ matrix.pg_version }} Windows ${{ matrix.target_arch }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -242,6 +250,18 @@ jobs:
           - "15.12"
           - "16.8"
           - "17.4"
+        target_arch:
+          - x86_64
+          - arm64
+        include:
+          - target_arch: x86_64
+            runner: windows-2022
+            msystem: UCRT64
+            prefix_dir: /ucrt64
+          - target_arch: arm64
+            runner: windows-11-arm
+            msystem: CLANGARM64
+            prefix_dir: /clangarm64
 
     defaults:
       run:
@@ -251,7 +271,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup MSYS2
+      - name: Setup MSYS2 (x86_64)
+        if: matrix.target_arch == 'x86_64'
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -268,12 +289,32 @@ jobs:
             flex
             bison
 
+      - name: Setup MSYS2 (arm64)
+        if: matrix.target_arch == 'arm64'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANGARM64
+          update: true
+          install: >-
+            base-devel
+            zip
+            mingw-w64-clang-aarch64-clang
+            mingw-w64-clang-aarch64-lld
+            mingw-w64-clang-aarch64-llvm-tools
+            mingw-w64-clang-aarch64-pkgconf
+            mingw-w64-clang-aarch64-openssl
+            mingw-w64-clang-aarch64-readline
+            mingw-w64-clang-aarch64-zlib
+            flex
+            bison
+
       - name: Set environment
         run: |
           {
             echo "PG_VERSION=${{ matrix.pg_version }}"
-            echo "INSTALL_DIR=postgresql-${{ matrix.pg_version }}-windows-x86_64"
-            echo "MSYSTEM=UCRT64"
+            echo "INSTALL_DIR=postgresql-${{ matrix.pg_version }}-windows-${{ matrix.target_arch }}"
+            echo "MSYSTEM=${{ matrix.msystem }}"
+            echo "PREFIX_DIR=${{ matrix.prefix_dir }}"
             echo "CHERE_INVOKING=1"
           } >> "${GITHUB_ENV}"
 
@@ -287,9 +328,9 @@ jobs:
         run: |
           cd "postgresql-${PG_VERSION}"
 
-          export PATH="/ucrt64/bin:${PATH}"
-          export CPPFLAGS="-I/ucrt64/include"
-          export LDFLAGS="-L/ucrt64/lib"
+          export PATH="${PREFIX_DIR}/bin:${PATH}"
+          export CPPFLAGS="-I${PREFIX_DIR}/include"
+          export LDFLAGS="-L${PREFIX_DIR}/lib"
 
           ./configure \
             --prefix="/${INSTALL_DIR}" \
@@ -317,10 +358,10 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: postgresql-${{ matrix.pg_version }}-windows-x86_64
+          name: postgresql-${{ matrix.pg_version }}-windows-${{ matrix.target_arch }}
           path: |
-            postgresql-${{ matrix.pg_version }}-windows-x86_64.zip
-            postgresql-${{ matrix.pg_version }}-windows-x86_64.zip.sha256
+            postgresql-${{ matrix.pg_version }}-windows-${{ matrix.target_arch }}.zip
+            postgresql-${{ matrix.pg_version }}-windows-${{ matrix.target_arch }}.zip.sha256
 
   release:
     needs:
