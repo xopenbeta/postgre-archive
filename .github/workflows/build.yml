@@ -10,7 +10,7 @@ env:
 
 jobs:
   build-macos:
-    name: PostgreSQL ${{ matrix.pg_version }} (${{ matrix.target_arch }})
+    name: PostgreSQL ${{ matrix.pg_version }} macOS ${{ matrix.target_arch }}
     strategy:
       fail-fast: false
       matrix:
@@ -161,7 +161,7 @@ jobs:
             postgresql-${{ matrix.pg_version }}-macos-${{ matrix.target_arch }}.tar.gz.sha256
 
   build-linux:
-    name: PostgreSQL ${{ matrix.pg_version }} (linux-x86_64)
+    name: PostgreSQL ${{ matrix.pg_version }} Linux x86_64
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -233,7 +233,7 @@ jobs:
             postgresql-${{ matrix.pg_version }}-linux-x86_64.tar.gz.sha256
 
   build-windows:
-    name: PostgreSQL ${{ matrix.pg_version }} (windows-x86_64)
+    name: PostgreSQL ${{ matrix.pg_version }} Windows x86_64
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -259,12 +259,14 @@ jobs:
           install: >-
             base-devel
             zip
-            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-make
+            mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-openssl
             mingw-w64-ucrt-x86_64-readline
             mingw-w64-ucrt-x86_64-zlib
-            mingw-w64-ucrt-x86_64-flex
-            mingw-w64-ucrt-x86_64-bison
+            flex
+            bison
 
       - name: Set environment
         run: |
