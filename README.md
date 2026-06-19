@@ -5,9 +5,9 @@
 ## 触发构建
 
 ```bash
-git tag v202604171218
+git tag v202606191521
 git push
-git push origin v202604171218
+git push origin v202606191521
 ```
 
 构建完成后，GitHub Release 页面会自动发布全部支持版本在各平台（macOS/Linux/Windows）与两种目标架构（x86_64/arm64）上的二进制包。
@@ -41,6 +41,7 @@ git push origin v202604171218
 - **依赖**: `openssl@3`、`readline`、`zlib`、`flex`、`bison`、`pkg-config`
 - **Linux 打包**: `.tar.gz`
 - **Windows 打包**: `.zip`
+- **Windows 运行时**: 产物会额外包含工具链运行时 DLL（来自 MSYS2 `UCRT64` / `CLANGARM64`），减少缺失依赖导致的启动失败
 - **源码**: 从 [ftp.postgresql.org](https://ftp.postgresql.org/pub/source/) 下载
 
 ## 使用方法

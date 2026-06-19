@@ -364,6 +364,20 @@ jobs:
           rm -rf "${GITHUB_WORKSPACE}/stage"
           make install DESTDIR="${GITHUB_WORKSPACE}/stage"
 
+          STAGE_INSTALL="${GITHUB_WORKSPACE}/stage/${INSTALL_DIR}"
+          TARGET_BIN_DIR="${STAGE_INSTALL}/bin"
+          SOURCE_DLL_DIR="${PREFIX_DIR}/bin"
+
+          mkdir -p "${TARGET_BIN_DIR}"
+          mapfile -t RUNTIME_DLLS < <(find "${SOURCE_DLL_DIR}" -maxdepth 1 -type f -iname '*.dll' | sort)
+          if [ "${#RUNTIME_DLLS[@]}" -eq 0 ]; then
+            echo "No runtime DLLs found in ${SOURCE_DLL_DIR}"
+            exit 1
+          fi
+
+          cp -f "${RUNTIME_DLLS[@]}" "${TARGET_BIN_DIR}/"
+          echo "Bundled ${#RUNTIME_DLLS[@]} runtime DLL files into ${TARGET_BIN_DIR}"
+
           cd "${GITHUB_WORKSPACE}/stage"
           zip -r "${GITHUB_WORKSPACE}/${INSTALL_DIR}.zip" "${INSTALL_DIR}"
 
